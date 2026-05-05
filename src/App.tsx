@@ -33,7 +33,14 @@ import {
   Download,
   Info,
   CheckCircle,
-  RotateCcw
+  RotateCcw,
+  ArrowLeft,
+  ArrowRight,
+  Code as FileCode,
+  GitBranch,
+  Gamepad2,
+  Lock,
+  Mail
 } from 'lucide-react';
 import { calculateCoordinates, MDBCoordinates, fold, FoldedLayer, SuperBit } from './services/mdbCore';
 import { analyzeThreat, ThreatAnalysis } from './services/geminiService';
@@ -42,6 +49,7 @@ import { analyzeThreat, ThreatAnalysis } from './services/geminiService';
 interface WindowProps {
   id: string;
   title: string;
+  mode?: string;
   icon: React.ReactNode;
   content: React.ReactNode;
   isOpen: boolean;
@@ -54,7 +62,7 @@ interface WindowProps {
 
 // Components
 const Window: React.FC<WindowProps> = ({ 
-  id, title, icon, content, isMaximized, zIndex, onClose, onMinimize, onFocus 
+  id, title, mode, icon, content, isMaximized, zIndex, onClose, onMinimize, onFocus 
 }) => {
   const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
   const effectiveMaximized = isMaximized || isMobile;
@@ -85,7 +93,12 @@ const Window: React.FC<WindowProps> = ({
       <div className="h-14 md:h-12 bg-white/5 flex items-center justify-between px-4 cursor-grab active:cursor-grabbing border-b border-white/5 shrink-0">
         <div className="flex items-center gap-3">
           <span className="text-blue-400">{icon}</span>
-          <span className="text-xs font-bold tracking-widest uppercase opacity-80">{title}</span>
+          <div className="flex items-baseline gap-2">
+            <span className="text-xs font-bold tracking-widest uppercase opacity-80">{title}</span>
+            <span className={`hidden md:inline-block text-[8px] px-1.5 py-0.5 rounded border font-mono font-bold ${mode === 'Dimensional' ? 'bg-purple-500/20 border-purple-500/40 text-purple-300' : 'bg-blue-500/20 border-blue-500/40 text-blue-300'}`}>
+              {mode === 'Dimensional' ? 'Δ CORE' : 'CLASSIC'}
+            </span>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           {!isMobile && (
@@ -592,6 +605,254 @@ const QuantumLab: React.FC = () => {
   );
 };
 
+const FirefoxApp: React.FC = () => (
+  <div className="flex flex-col h-full">
+    <div className="h-10 bg-[#2b2a33] border-b border-white/5 flex items-center px-4 gap-2 shrink-0">
+      <div className="flex gap-2">
+        <ArrowLeft size={14} className="text-white/40" />
+        <ArrowRight size={14} className="text-white/40" />
+        <RotateCcw size={14} className="text-white/40" />
+      </div>
+      <div className="flex-1 bg-[#1c1b22] rounded-md px-3 py-1 text-[11px] text-white/60 flex items-center justify-between border border-white/10">
+        <span>https://www.mozilla.org/firefox</span>
+        <Shield size={10} className="text-blue-400" />
+      </div>
+    </div>
+    <div className="flex-1 p-8 text-center space-y-6 overflow-auto bg-[#1c1b22]">
+      <div className="w-20 h-20 bg-gradient-to-tr from-orange-600 to-yellow-400 rounded-full mx-auto flex items-center justify-center p-4">
+        <Globe size={48} className="text-white shadow-lg" />
+      </div>
+      <div>
+        <h2 className="text-2xl font-bold tracking-tight text-white">Mozilla Firefox</h2>
+        <p className="text-[10px] text-white/30 uppercase tracking-[0.3em] font-mono mt-2">CLASSIC BINARY / x64 KERNEL BRIDGE</p>
+      </div>
+      <div className="w-full max-w-2xl mx-auto p-4 bg-white/5 rounded-lg text-left space-y-2 border border-white/5 font-sans">
+        <div className="h-4 w-3/4 bg-white/10 rounded animate-pulse" />
+        <div className="h-4 w-1/2 bg-white/10 rounded animate-pulse" />
+        <div className="h-20 w-full bg-white/5 rounded mt-4 flex items-center justify-center text-[10px] text-white/20 italic">
+          High Performance Rendering Engine Active
+        </div>
+      </div>
+    </div>
+  </div>
+);
+
+const LibreOfficeApp: React.FC = () => (
+  <div className="flex flex-col h-full bg-[#f0f0f0] text-gray-800">
+    <div className="h-8 bg-gray-200 border-b border-gray-300 flex items-center px-4 gap-4 text-[11px] shrink-0">
+      <span className="font-bold">File</span>
+      <span>Edit</span>
+      <span>View</span>
+      <span>Insert</span>
+      <span>Format</span>
+      <span>Tools</span>
+    </div>
+    <div className="h-10 bg-gray-100 border-b border-gray-300 flex items-center px-4 gap-2 shrink-0">
+      <FileText size={16} className="text-blue-600" />
+      <div className="h-6 w-32 bg-white border border-gray-300 rounded px-2 flex items-center text-[10px]">Liberation Sans</div>
+      <div className="h-6 w-12 bg-white border border-gray-300 rounded px-2 flex items-center text-[10px]">12</div>
+    </div>
+    <div className="flex-1 p-12 overflow-auto flex justify-center bg-gray-300 shadow-inner">
+      <div className="w-[595px] h-[842px] bg-white shadow-2xl p-20 relative">
+        <div className="absolute top-10 left-10 text-[10px] text-blue-500/50 uppercase font-mono">Classic Application Runner</div>
+        <div className="space-y-4">
+          <div className="h-2 w-full bg-gray-100 rounded" />
+          <div className="h-2 w-full bg-gray-100 rounded" />
+          <div className="h-2 w-3/4 bg-gray-100 rounded" />
+          <div className="h-2 w-full bg-gray-100 rounded" />
+          <div className="h-32 w-full bg-gray-50 rounded border border-dashed border-gray-200 flex items-center justify-center text-xs text-gray-400">
+            LibreOffice Writer v7.6
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+);
+
+const VLCApp: React.FC = () => (
+  <div className="flex flex-col h-full bg-black">
+    <div className="flex-1 flex items-center justify-center relative group">
+      <div className="w-32 h-32 text-orange-500 opacity-20 group-hover:opacity-40 transition-opacity">
+        <Music size={128} />
+      </div>
+      <div className="absolute bottom-10 left-1/2 -translate-x-1/2 flex items-center gap-6 text-white/50">
+        <Play size={24} className="hover:text-white cursor-pointer" />
+        <div className="w-64 h-1 bg-white/20 rounded-full relative">
+          <div className="absolute inset-y-0 left-0 w-1/3 bg-orange-500 rounded-full" />
+        </div>
+        <span className="text-[10px] font-mono tracking-tighter">04:20 / 12:45</span>
+      </div>
+    </div>
+    <div className="h-10 bg-[#212121] flex items-center justify-between px-4 text-[10px] text-white/40 uppercase tracking-widest font-mono border-t border-white/5">
+      <span>VLC Media Player</span>
+      <div className="flex gap-4">
+        <span>Classic Mode</span>
+        <span className="text-orange-500/50">HW: ACCEL</span>
+      </div>
+    </div>
+  </div>
+);
+
+const SystemInformation: React.FC = () => {
+  const [cpuUsage, setCpuUsage] = useState(12);
+  const [ramUsage, setRamUsage] = useState(4.2);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCpuUsage(prev => Math.max(5, Math.min(95, prev + (Math.random() * 10 - 5))));
+      setRamUsage(prev => Math.max(2, Math.min(16, prev + (Math.random() * 0.1 - 0.05))));
+    }, 1500);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div className="p-6 space-y-6 overflow-auto h-full">
+      <div className="flex items-center gap-4 border-b border-white/10 pb-6">
+        <div className="w-16 h-16 bg-blue-500/20 rounded-2xl flex items-center justify-center border border-blue-500/30">
+          <Activity size={32} className="text-blue-400" />
+        </div>
+        <div>
+          <h2 className="text-xl font-bold tracking-tight text-white uppercase">System Information</h2>
+          <p className="text-[10px] text-white/30 font-mono tracking-widest">MDB-OS Kernel v1.2.0-STABLE (x86_64/Δ)</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Hardware Specs */}
+        <div className="glass-morphism p-4 rounded-xl border border-white/10 space-y-4">
+          <div className="text-[10px] uppercase font-bold text-blue-400 tracking-widest border-b border-white/5 pb-2">Hardware Specs</div>
+          <div className="space-y-3">
+            <div className="flex justify-between text-[11px]">
+              <span className="opacity-40">CPU</span>
+              <span className="font-mono">Intel(R) Core(TM) MDB-Hybrid @ 4.2GHz (16 Cores)</span>
+            </div>
+            <div className="flex justify-between text-[11px]">
+              <span className="opacity-40">RAM</span>
+              <span className="font-mono">32.0 GB DDR5 (Dimensional Buffer Enabled)</span>
+            </div>
+            <div className="flex justify-between text-[11px]">
+              <span className="opacity-40">GPU</span>
+              <span className="font-mono">MDB Vision Engine G3 (Vulkan 1.3)</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Runtime Metrics */}
+        <div className="glass-morphism p-4 rounded-xl border border-white/10 space-y-4">
+          <div className="text-[10px] uppercase font-bold text-purple-400 tracking-widest border-b border-white/5 pb-2">Dimensional Core Status</div>
+          <div className="space-y-3">
+            <div className="flex justify-between text-[11px]">
+              <span className="opacity-40">Active Layers</span>
+              <span className="font-mono text-purple-400">D3, D4, D5, D12, D84</span>
+            </div>
+            <div className="flex justify-between text-[11px]">
+              <span className="opacity-40">Fold Entropy</span>
+              <span className="font-mono">0.1618033 (Stable Phi)</span>
+            </div>
+            <div className="flex justify-between text-[11px]">
+              <span className="opacity-40">Space Factor</span>
+              <span className="font-mono">15.4 PB / 1 TB physical</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        <div className="text-[10px] uppercase font-bold text-white/30 px-1">Resource Utilization</div>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-1">
+            <div className="flex justify-between text-[9px] uppercase font-bold opacity-40">CPU Usage</div>
+            <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
+              <motion.div animate={{ width: `${cpuUsage}%` }} className="h-full bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)]" />
+            </div>
+            <div className="text-right text-[10px] font-mono opacity-60">{cpuUsage.toFixed(1)}%</div>
+          </div>
+          <div className="space-y-1">
+            <div className="flex justify-between text-[9px] uppercase font-bold opacity-40">Memory Usage</div>
+            <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
+              <motion.div animate={{ width: `${(ramUsage / 16) * 100}%` }} className="h-full bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)]" />
+            </div>
+            <div className="text-right text-[10px] font-mono opacity-60">{ramUsage.toFixed(1)} GB / 32 GB</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const GIMPApp: React.FC = () => (
+  <div className="flex h-full bg-[#303030] text-white">
+    <div className="w-12 bg-[#212121] border-r border-[#111] flex flex-col items-center py-4 gap-4">
+      <ImageIcon size={20} className="opacity-60" />
+      <div className="w-8 h-px bg-white/10" />
+      <div className="flex flex-col gap-3">
+        {[1,2,3,4,5].map(i => <div key={i} className="w-6 h-6 bg-white/5 rounded border border-white/5" />)}
+      </div>
+    </div>
+    <div className="flex-1 flex flex-col">
+      <div className="h-8 bg-[#212121] border-b border-[#111] flex items-center px-4 gap-4 text-[10px] uppercase tracking-wider opacity-60">
+        <span>File</span><span>Edit</span><span>Select</span><span>View</span><span>Image</span><span>Layer</span>
+      </div>
+      <div className="flex-1 p-10 flex items-center justify-center bg-[#1a1a1a]">
+        <div className="w-96 h-64 bg-[#2b2b2b] shadow-2xl border border-white/5 flex items-center justify-center flex-col gap-4">
+          <ImageIcon size={48} className="text-white/10" />
+          <span className="text-[10px] font-mono opacity-20 uppercase tracking-[0.5em]">Canvas Area [Classic Mode]</span>
+        </div>
+      </div>
+    </div>
+  </div>
+);
+
+const VSCodeApp: React.FC = () => (
+  <div className="flex h-full bg-[#1e1e1e] text-[#cccccc] font-sans">
+    <div className="w-12 bg-[#333333] flex flex-col items-center py-4 gap-6">
+      <div className="text-blue-400"><FileCode size={24} /></div>
+      <Search size={22} className="opacity-40" />
+      <GitBranch size={22} className="opacity-40" />
+      <Play size={22} className="opacity-40" />
+    </div>
+    <div className="w-48 bg-[#252526] border-r border-[#1e1e1e] p-3">
+      <div className="text-[10px] uppercase font-bold opacity-40 mb-4 tracking-widest">Explorer</div>
+      <div className="space-y-2 text-xs">
+        <div className="flex items-center gap-2 opacity-80"><FileCode size={12} className="text-blue-400" /> main.cpp</div>
+        <div className="flex items-center gap-2 opacity-40"><FileCode size={12} /> mdb_core.c</div>
+        <div className="flex items-center gap-2 opacity-40"><Folder size={12} /> kernel</div>
+      </div>
+    </div>
+    <div className="flex-1 flex flex-col">
+      <div className="h-9 bg-[#2d2d2d] flex items-center px-4 border-b border-[#1e1e1e] gap-4">
+        <div className="bg-[#1e1e1e] px-4 py-2 border-t-2 border-blue-500 text-xs">main.cpp</div>
+      </div>
+      <div className="flex-1 p-6 font-mono text-sm leading-relaxed overflow-auto">
+        <div className="flex gap-4">
+          <span className="opacity-20">1</span>
+          <span><span className="text-blue-400">#include</span> <span className="text-orange-400">&lt;iostream&gt;</span></span>
+        </div>
+        <div className="flex gap-4">
+          <span className="opacity-20">2</span>
+          <span><span className="text-blue-400">#include</span> <span className="text-orange-400">&lt;mdb/kernel.h&gt;</span></span>
+        </div>
+        <div className="flex gap-4">
+          <span className="opacity-20">3</span>
+          <span />
+        </div>
+        <div className="flex gap-4">
+          <span className="opacity-20">4</span>
+          <span><span className="text-blue-400">int</span> <span className="text-yellow-400">main</span>() {"{"}</span>
+        </div>
+        <div className="flex gap-4">
+          <span className="opacity-20">5</span>
+          <span>&nbsp;&nbsp;&nbsp;&nbsp;<span className="text-green-400">// Classic Mode execution</span></span>
+        </div>
+        <div className="flex gap-4">
+          <span className="opacity-20">6</span>
+          <span>&nbsp;&nbsp;&nbsp;&nbsp;std::cout &lt;&lt; <span className="text-orange-400">"MDB-OS Bridge Active"</span>;</span>
+        </div>
+      </div>
+    </div>
+  </div>
+);
+
 const SettingsPanel: React.FC = () => {
   const handleDownload = () => {
     window.location.href = '/api/export-source';
@@ -678,7 +939,7 @@ const App: React.FC = () => {
     return () => clearInterval(t);
   }, []);
 
-  const openApp = (id: string, title: string, icon: any, content: any) => {
+  const openApp = (id: string, title: string, icon: any, content: any, mode?: string) => {
     if (openWindows.find(w => w.id === id)) {
       setFocusedId(id);
       const maxZ = openWindows.length > 0 ? Math.max(...openWindows.map(win => win.zIndex)) : 0;
@@ -687,7 +948,7 @@ const App: React.FC = () => {
       ));
       return;
     }
-    const newWindow = { id, title, icon, content, isOpen: true, isMaximized: false, zIndex: openWindows.length + 1 };
+    const newWindow = { id, title, mode, icon, content, isOpen: true, isMaximized: false, zIndex: openWindows.length + 1 };
     setOpenWindows([...openWindows, newWindow]);
     setFocusedId(id);
   };
@@ -706,14 +967,17 @@ const App: React.FC = () => {
   };
 
   const apps = [
-    { id: 'terminal', title: 'Terminal', icon: <Terminal size={20} />, content: <MDBTerminal /> },
-    { id: 'installer', title: 'Install OS', icon: <HardDrive size={20} />, content: <MDBInstaller /> },
-    { id: 'files', title: 'Files', icon: <Folder size={20} />, content: <FileExplorer /> },
-    { id: 'security', title: 'Security', icon: <Shield size={20} />, content: <SecurityAgent /> },
-    { id: 'folder', title: 'Fold Engine', icon: <Scaling size={20} />, content: <DimensionalFoldTool /> },
-    { id: 'quantum', title: 'Quantum Lab', icon: <Cpu size={20} />, content: <QuantumLab /> },
-    { id: 'store', title: 'App Store', icon: <ShoppingBag size={20} />, content: <AppStore installed={installedApps} onInstall={handleInstall} onUninstall={handleUninstall} /> },
-    { id: 'settings', title: 'Settings', icon: <Settings size={20} />, content: <SettingsPanel /> }
+    { id: 'browser', title: 'Firefox', icon: <Globe size={20} />, content: <FirefoxApp />, mode: 'Classic' },
+    { id: 'code', title: 'VS Code', icon: <FileCode size={20} />, content: <VSCodeApp />, mode: 'Classic' },
+    { id: 'gimp', title: 'GIMP', icon: <ImageIcon size={20} />, content: <GIMPApp />, mode: 'Classic' },
+    { id: 'libreoffice', title: 'LibreOffice', icon: <FileText size={20} />, content: <LibreOfficeApp />, mode: 'Classic' },
+    { id: 'vlc', title: 'VLC Player', icon: <Music size={20} />, content: <VLCApp />, mode: 'Classic' },
+    { id: 'system', title: 'System Info', icon: <Activity size={20} />, content: <SystemInformation />, mode: 'Classic' },
+    { id: 'terminal', title: 'Terminal', icon: <Terminal size={20} />, content: <MDBTerminal />, mode: 'Classic' },
+    { id: 'folder', title: 'Fold Engine', icon: <Scaling size={20} />, content: <DimensionalFoldTool />, mode: 'Dimensional' },
+    { id: 'quantum', title: 'Quantum Lab', icon: <Cpu size={20} />, content: <QuantumLab />, mode: 'Dimensional' },
+    { id: 'store', title: 'App Store', icon: <ShoppingBag size={20} />, content: <AppStore installed={installedApps} onInstall={handleInstall} onUninstall={handleUninstall} />, mode: 'Classic' },
+    { id: 'settings', title: 'Settings', icon: <Settings size={20} />, content: <SettingsPanel />, mode: 'Classic' }
   ];
 
   const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
@@ -731,11 +995,14 @@ const App: React.FC = () => {
             key={app.id} 
             whileHover={{ scale: 1.1 }}
             whileTap={{ scale: 0.9 }}
-            onClick={() => openApp(app.id, app.title, app.icon, app.content)}
+            onClick={() => openApp(app.id, app.title, app.icon, app.content, app.mode)}
             className="flex flex-col items-center gap-1 md:gap-2 cursor-pointer transition-all hover:bg-white/5 p-2 md:p-4 rounded-xl md:rounded-2xl"
           >
-            <div className="w-12 h-12 md:w-16 md:h-16 glass-morphism rounded-xl md:rounded-2xl flex items-center justify-center text-blue-400 shadow-xl border-white/20">
+            <div className="w-12 h-12 md:w-16 md:h-16 glass-morphism rounded-xl md:rounded-2xl flex items-center justify-center text-blue-400 shadow-xl border-white/20 relative">
               {React.cloneElement(app.icon, { size: isMobile ? 24 : 32 })}
+              <div className={`absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold border ${app.mode === 'Dimensional' ? 'bg-purple-500 border-purple-400 text-white' : 'bg-blue-500 border-blue-400 text-white'}`}>
+                {app.mode === 'Dimensional' ? 'Δ' : 'C'}
+              </div>
             </div>
             <span className="text-[8px] md:text-[10px] font-bold tracking-[0.1em] md:tracking-[0.2em] opacity-80 uppercase text-center leading-tight">
               {isMobile ? app.id : app.title}
@@ -766,7 +1033,7 @@ const App: React.FC = () => {
         {apps.map((app) => (
           <button 
             key={app.id}
-            onClick={() => openApp(app.id, app.title, app.icon, app.content)}
+            onClick={() => openApp(app.id, app.title, app.icon, app.content, app.mode)}
             className={`p-2 rounded-xl transition-all ${focusedId === app.id ? 'bg-blue-500/20 text-blue-400' : 'hover:bg-white/5 opacity-60'}`}
           >
             {React.cloneElement(app.icon, { size: 24 })}

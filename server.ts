@@ -16,30 +16,48 @@ async function startServer() {
   // Mock Remote Repository for MDB OS
   const remoteApps = [
     {
-      id: "chromium",
-      name: "Chromium Browser",
-      description: "Standard open-source web browser for high-performance internet access.",
-      version: "114.0.5735",
+      id: "firefox",
+      name: "Mozilla Firefox",
+      description: "Fast, private and open source web browser.",
+      version: "124.0.1",
       icon: "Globe",
-      size: "82MB",
+      size: "72MB",
+      category: "Classic"
+    },
+    {
+      id: "vscode",
+      name: "VS Code",
+      description: "Code editing. Redefined.",
+      version: "1.87.2",
+      icon: "Code",
+      size: "154MB",
+      category: "Classic"
+    },
+    {
+      id: "gimp",
+      name: "GIMP",
+      description: "GNU Image Manipulation Program.",
+      version: "2.10.36",
+      icon: "Image",
+      size: "98MB",
       category: "Classic"
     },
     {
       id: "libreoffice",
       name: "LibreOffice",
-      description: "Full-featured productivity suite including writer, calc, and impress.",
-      version: "7.5.4",
+      description: "The world's most popular open source office suite.",
+      version: "7.6.5",
       icon: "FileText",
-      size: "245MB",
+      size: "215MB",
       category: "Classic"
     },
     {
       id: "vlc",
-      name: "VLC Media Player",
-      description: "Cross-platform multimedia player and framework.",
-      version: "3.0.18",
+      name: "VLC Player",
+      description: "Simple, fast and powerful multimedia player.",
+      version: "3.5.4",
       icon: "Music",
-      size: "38MB",
+      size: "42MB",
       category: "Classic"
     },
     {
@@ -49,15 +67,6 @@ async function startServer() {
       version: "1.0.0",
       icon: "Cpu",
       size: "12MB",
-      category: "Experimental"
-    },
-    {
-      id: "dim-fold-pro",
-      name: "Fold Engine Pro",
-      description: "Specialized tool for advanced data compression research.",
-      version: "2.1.0",
-      icon: "Scaling",
-      size: "4MB",
       category: "Experimental"
     }
   ];
@@ -93,6 +102,7 @@ async function startServer() {
       const zip = new JSZipClass();
       
       const filesToInclude = [
+        "kernel/mdb_kernel.cpp",
         "kernel/mdb_core.c",
         "kernel/mdb_arch.h",
         "kernel/mdbfs.c",
@@ -100,6 +110,7 @@ async function startServer() {
         "scripts/make_iso.sh",
         "Cargo.toml",
         "main.rs",
+        "BUILD_GUIDE.md",
         "server.ts",
         "src/App.tsx",
         "package.json"
