@@ -1,0 +1,44 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  
+  --color-mdb-bg: #050505;
+  --color-mdb-accent: #3b82f6;
+  --color-mdb-glass: rgba(15, 15, 15, 0.7);
+  --color-mdb-border: rgba(255, 255, 255, 0.1);
+}
+
+@layer base {
+  body {
+    @apply bg-mdb-bg text-white font-sans antialiased overflow-hidden selection:bg-mdb-accent selection:text-white;
+  }
+}
+
+.glass-morphism {
+  @apply bg-mdb-glass backdrop-blur-xl border border-mdb-border;
+}
+
+.mdb-card {
+  @apply rounded-2xl p-6 transition-all duration-300;
+}
+
+.mdb-button {
+  @apply px-4 py-2 rounded-lg font-medium transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+.window-shadow {
+  box-shadow: 0 0 40px rgba(0, 0, 0, 0.5);
+}
+
+@keyframes scanline {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100%); }
+}
+
+.scanline {
+  background: linear-gradient(to bottom, transparent, rgba(59, 130, 246, 0.05), transparent);
+  animation: scanline 8s linear infinite;
+}
