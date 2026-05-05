@@ -1,0 +1,136 @@
+// ============================================================================
+// src/memory.rs — Heap Allocator + Page Table Setup
+//
+// Gives the kernel a 1 MiB heap at virtual address 0x_4444_4444_0000.
+// This is what makes Vec, BTreeMap, String — and therefore all MDB
+// primitives — available in bare-metal no_std.
+//
+// Uses the linked_list_allocator crate, which is correct and simple
+// enough to audit. No slab, no jemalloc — pure linked list of free blocks.
+// ============================================================================
+
+use x86_64::{
+    VirtAddr,
+    structures::paging::{
+        mapper::MapToError,
+        FrameAllocator, Mapper, Page, PageTableFlags, PhysFrame, Size4KiB,
+    },
+    PhysAddr,
+};
+use linked_list_allocator::LockedHeap;
+
+// ── Heap region ──────────────────────────────────────────────────────────────
+
+pub const HEAP_START: usize = 0x_4444_4444_0000;
+pub const HEAP_SIZE:  usize = 1024 * 1024; // 1 MiB
+
+// ── Global allocator ─────────────────────────────────────────────────────────
+
+#[global_allocator]
+static ALLOCATOR: LockedHeap = LockedHeap::empty();
+
+// ── Bump frame allocator (bootstraps the page mapper) ────────────────────────
+
+/// A trivial bump allocator that hands out physical frames one by one.
+/// Used ONLY during init to map the heap pages.
+/// After that, the kernel has no dynamic physical frame allocator yet —
+/// that's fine because the heap is all we need for now.
+pub struct BumpAllocator {
+    next: u64,
+    end:  u64,
+}
+
+impl BumpAllocator {
+    /// `memory_map` is the BIOS/UEFI memory map from the bootloader.
+    /// We grab the largest usable region above 1 MiB.
+    pub fn new(memory_map: &'static bootloader::bootinfo::MemoryMap) -> Self {
+        use bootloader::bootinfo::MemoryRegionType;
+
+        let usable = memory_map
+            .iter()
+            .filter(|r| r.region_type == MemoryRegionType::Usable)
+            .filter(|r| r.range.start_addr() >= 0x100_000) // above 1 MiB
+            .max_by_key(|r| r.range.end_addr() - r.range.start_addr())
+            .expect("no usable memory region found");
+
+        BumpAllocator {
+            next: usable.range.start_addr(),
+            end:  usable.range.end_addr(),
+        }
+    }
+}
+
+unsafe impl FrameAllocator<Size4KiB> for BumpAllocator {
+    fn allocate_frame(&mut self) -> Option<PhysFrame<Size4KiB>> {
+        let frame_start = self.next;
+        self.next += 4096;
+        if self.next > self.end {
+            return None;
+        }
+        Some(PhysFrame::containing_address(PhysAddr::new(frame_start)))
+    }
+}
+
+// ── init ─────────────────────────────────────────────────────────────────────
+
+/// Map the heap virtual region and initialize the allocator.
+/// Call once during kernel_main, before any heap allocation.
+pub fn init_heap(
+    mapper: &mut impl Mapper<Size4KiB>,
+    frame_allocator: &mut impl FrameAllocator<Size4KiB>,
+) -> Result<(), MapToError<Size4KiB>> {
+    let page_range = {
+        let heap_start = VirtAddr::new(HEAP_START as u64);
+        let heap_end   = heap_start + HEAP_SIZE - 1u64;
+        let start_page = Page::containing_address(heap_start);
+        let end_page   = Page::containing_address(heap_end);
+        Page::range_inclusive(start_page, end_page)
+    };
+
+    for page in page_range {
+        let frame = frame_allocator
+            .allocate_frame()
+            .ok_or(MapToError::FrameAllocationFailed)?;
+        let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
+        unsafe { mapper.map_to(page, frame, flags, frame_allocator)?.flush() };
+    }
+
+    // Tell the allocator where its memory lives
+    unsafe {
+        ALLOCATOR.lock().init(HEAP_START, HEAP_SIZE);
+    }
+
+    Ok(())
+}
+
+// ── Page table helpers ────────────────────────────────────────────────────────
+
+/// Build a mapper from the current CR3 + the bootloader's physical memory offset.
+///
+/// The bootloader identity-maps all physical memory at `phys_mem_offset`,
+/// so we can access any physical address as virtual = phys + offset.
+pub fn init_mapper(
+    phys_mem_offset: VirtAddr,
+) -> impl Mapper<Size4KiB> {
+    use x86_64::structures::paging::OffsetPageTable;
+    let level_4_table = unsafe { active_level_4_table(phys_mem_offset) };
+    unsafe { OffsetPageTable::new(level_4_table, phys_mem_offset) }
+}
+
+unsafe fn active_level_4_table(
+    phys_mem_offset: VirtAddr,
+) -> &'static mut x86_64::structures::paging::PageTable {
+    use x86_64::registers::control::Cr3;
+    let (level_4_frame, _) = Cr3::read();
+    let phys = level_4_frame.start_address();
+    let virt = phys_mem_offset + phys.as_u64();
+    &mut *(virt.as_mut_ptr())
+}
+
+// ── OOM handler ──────────────────────────────────────────────────────────────
+
+#[alloc_error_handler]
+fn alloc_error(layout: core::alloc::Layout) -> ! {
+    panic!("MDB OS: heap allocation failed — size={} align={}",
+           layout.size(), layout.align());
+}

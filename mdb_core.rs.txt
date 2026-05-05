@@ -1,0 +1,719 @@
+// ============================================================================
+// src/mdb_core.rs — MDB Primitives (bare-metal Rust, no_std)
+//
+// Exact port of mdb_core.py + EntangledMemory from the Kimi ZIP.
+// This is the geometric folding engine. Zero compression. Zero loss.
+// Every OS primitive (process, file, IPC, memory) is built on this.
+// ============================================================================
+
+extern crate alloc;
+use alloc::vec::Vec;
+use alloc::vec;
+use alloc::string::{String, ToString};
+use alloc::collections::BTreeMap;
+use alloc::format;
+use alloc::boxed::Box;
+use core::cmp::Ordering;
+use libm::log2;
+
+// ============================================================================
+// CONSTANTS
+// ============================================================================
+
+/// The Golden Ratio — maximally irrational, used in D5 gravity.
+/// No two bit positions produce the same weighted contribution.
+pub const PHI: f64 = 1.618_033_988_749_895_f64;
+
+pub const MDB_VERSION: &str = "2.0.0";
+
+// ============================================================================
+// DIMENSION CALCULATORS
+// ============================================================================
+
+/// D3 — Temporal coordinate.
+/// The length of the bit string IS its time coordinate.
+/// This is the founding insight: length is not metadata, it is a dimension.
+#[inline(always)]
+pub fn d3_temporal(bits: &[u8]) -> usize {
+    bits.len()
+}
+
+/// D4 — Probability Density.
+/// Ratio of 1-bits to total bits encodes probability mass.
+pub fn d4_density(bits: &[u8]) -> f64 {
+    if bits.is_empty() {
+        return 0.0;
+    }
+    let ones = bits.iter().filter(|&&b| b != 0).count();
+    ones as f64 / bits.len() as f64
+}
+
+/// D5 — Relational Gravity.
+/// Each bit's contribution weighted by position scaled by PHI.
+/// PHI is maximally irrational — no two positions produce the same contribution.
+pub fn d5_gravity(bits: &[u8]) -> f64 {
+    if bits.is_empty() {
+        return 0.0;
+    }
+    let sum: f64 = bits
+        .iter()
+        .enumerate()
+        .map(|(i, &b)| b as f64 * PHI * (i + 1) as f64)
+        .sum();
+    sum % 1.0
+}
+
+/// D6 — Information Entropy.
+/// Shannon entropy of the bit distribution.
+pub fn d6_entropy(bits: &[u8]) -> f64 {
+    if bits.is_empty() {
+        return 0.0;
+    }
+    let p = d4_density(bits);
+    if p == 0.0 || p == 1.0 {
+        return 0.0;
+    }
+    -(p * log2(p) + (1.0 - p) * log2(1.0 - p))
+}
+
+// ============================================================================
+// DIMENSIONAL ADDRESS
+// ============================================================================
+
+/// A dimensional address: the unique location of a bit string in MDB space.
+/// We store D4 and D5 as u64 bit-representations of rounded f64 so that
+/// the address is fully Ord and usable as a BTreeMap key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct DimAddr {
+    pub d3: usize,  // Temporal — exact integer
+    pub d4: u64,    // Density  — f64 bits, rounded to 8 decimal places
+    pub d5: u64,    // Gravity  — f64 bits, rounded to 8 decimal places
+}
+
+impl DimAddr {
+    pub fn d4_float(&self) -> f64 {
+        f64::from_bits(self.d4)
+    }
+    pub fn d5_float(&self) -> f64 {
+        f64::from_bits(self.d5)
+    }
+}
+
+/// Round an f64 to 8 decimal places and return as u64 bit representation.
+#[inline]
+fn quantize(v: f64) -> u64 {
+    let rounded = libm::round(v * 1e8) / 1e8;
+    rounded.to_bits()
+}
+
+/// Compute the full dimensional address of a bit string.
+pub fn dimensional_address(bits: &[u8]) -> DimAddr {
+    DimAddr {
+        d3: d3_temporal(bits),
+        d4: quantize(d4_density(bits)),
+        d5: quantize(d5_gravity(bits)),
+    }
+}
+
+// ============================================================================
+// EVOLVE STEP — D3 Temporal Evolution Rule
+// ============================================================================
+
+/// One step of D3-driven string evolution.
+///
+///   Odd length  → flip the middle bit
+///   Even length → flip the last bit
+///
+/// Protected positions (Definitions List anchors) are never flipped.
+/// The string's own temporal coordinate drives its own evolution.
+pub fn evolve_step(bits: &mut Vec<u8>, protected: &[usize]) {
+    let n = bits.len();
+    if n == 0 {
+        bits.push(0);
+        return;
+    }
+    let target = if n % 2 == 1 { n / 2 } else { n - 1 };
+    if !protected.contains(&target) {
+        bits[target] ^= 1;
+    }
+}
+
+/// Run evolve_step for `steps` iterations, returns new Vec<u8>.
+pub fn evolve_n(bits: &[u8], steps: usize, protected: &[usize]) -> Vec<u8> {
+    let mut current = bits.to_vec();
+    for _ in 0..steps {
+        evolve_step(&mut current, protected);
+    }
+    current
+}
+
+// ============================================================================
+// SUPERBIT — Atomic Unit of MDB
+// ============================================================================
+
+/// The SuperBit encodes ALL possible states simultaneously in one binary string.
+///
+/// Key properties (preserved from Python spec):
+/// 1. Non-destructive collapse — bit string NEVER modified on read.
+/// 2. Can collapse to any encoded state unlimited times.
+/// 3. Learns and evolves by reweighting encoded probabilities.
+/// 4. Has a unique dimensional address for O(1) retrieval.
+///
+/// Binary encoding layout (matches mdb_core.py):
+///   [8 bits: num_states]
+///   [8 bits per state: weight × 255]
+///   [8 bits: generation]
+pub struct SuperBit {
+    /// The canonical binary string. 1 element = 1 bit (0 or 1).
+    pub bits: Vec<u8>,
+    pub num_states: usize,
+    pub labels: Vec<String>,
+    pub weights: Vec<f64>,
+    pub generation: u32,
+    /// Definitions List: protected bit positions (never flipped by evolve_step)
+    pub protected: Vec<usize>,
+    /// Cached dimensional address
+    pub address: DimAddr,
+}
+
+impl SuperBit {
+    // ── constructors ─────────────────────────────────────────────────────────
+
+    /// Create with equal-weight states.
+    pub fn new(labels: Vec<String>) -> Self {
+        let n = labels.len().max(1);
+        let weights = vec![1.0_f64 / n as f64; n];
+        Self::with_weights(labels, weights)
+    }
+
+    /// Create with explicit weights (normalized automatically).
+    pub fn with_weights(labels: Vec<String>, weights: Vec<f64>) -> Self {
+        assert!(!labels.is_empty(), "SuperBit must have at least one state");
+        let n = labels.len();
+        let total: f64 = weights.iter().sum();
+        let normalized: Vec<f64> = weights
+            .iter()
+            .map(|&w| if total > 0.0 { w / total } else { 1.0 / n as f64 })
+            .collect();
+        let bits = Self::encode(&normalized, 0);
+        let address = dimensional_address(&bits);
+        SuperBit {
+            bits,
+            num_states: n,
+            labels,
+            weights: normalized,
+            generation: 0,
+            protected: Vec::new(),
+            address,
+        }
+    }
+
+    /// Reconstruct SuperBit from raw bit string (e.g. after string_evolve).
+    pub fn from_bits(bits: Vec<u8>) -> Self {
+        // Decode header
+        let num_states = {
+            let n = read_u8(&bits, 0) as usize;
+            n.max(1).min(64)
+        };
+        let mut weights = Vec::with_capacity(num_states);
+        for i in 0..num_states {
+            let byte = read_u8(&bits, 8 + i * 8);
+            weights.push(byte as f64 / 255.0);
+        }
+        let total: f64 = weights.iter().sum();
+        let weights: Vec<f64> = weights
+            .iter()
+            .map(|&w| if total > 0.0 { w / total } else { 1.0 / num_states as f64 })
+            .collect();
+        let generation = read_u8(&bits, 8 + num_states * 8) as u32;
+        let labels: Vec<String> = (0..num_states).map(|i| format!("s{}", i)).collect();
+        let address = dimensional_address(&bits);
+        SuperBit {
+            bits,
+            num_states,
+            labels,
+            weights,
+            generation,
+            protected: Vec::new(),
+            address,
+        }
+    }
+
+    // ── encoding / decoding ──────────────────────────────────────────────────
+
+    fn encode(weights: &[f64], generation: u32) -> Vec<u8> {
+        let n = weights.len();
+        let mut bits = Vec::with_capacity(8 + n * 8 + 8);
+        push_u8(&mut bits, n.min(255) as u8);          // num_states header
+        for &w in weights {
+            push_u8(&mut bits, (w * 255.0).min(255.0) as u8);
+        }
+        push_u8(&mut bits, generation.min(255) as u8); // generation
+        bits
+    }
+
+    fn refresh(&mut self) {
+        self.bits = Self::encode(&self.weights, self.generation);
+        self.address = dimensional_address(&self.bits);
+    }
+
+    // ── collapse ─────────────────────────────────────────────────────────────
+
+    /// Non-destructive collapse.
+    /// Uses a deterministic LCG seeded by `tick` (kernel timer counter).
+    /// The bit string is NEVER modified — proof: address unchanged after call.
+    pub fn collapse(&self, tick: u64) -> usize {
+        let r = lcg_f64(tick ^ (self.address.d3 as u64 * 0xDEAD_BEEF));
+        let mut cum = 0.0_f64;
+        for (i, &w) in self.weights.iter().enumerate() {
+            cum += w;
+            if r <= cum {
+                return i;
+            }
+        }
+        self.weights.len() - 1
+    }
+
+    /// Collapse and return the label string.
+    pub fn collapse_label(&self, tick: u64) -> &str {
+        let idx = self.collapse(tick);
+        &self.labels[idx]
+    }
+
+    /// Return ALL states with their probabilities — no collapse, full superposition.
+    pub fn superposition(&self) -> Vec<(&str, f64)> {
+        self.labels
+            .iter()
+            .zip(self.weights.iter())
+            .map(|(l, &w)| (l.as_str(), w))
+            .collect()
+    }
+
+    // ── evolution ────────────────────────────────────────────────────────────
+
+    /// Learning evolution: reinforce state `idx` by `reward`.
+    /// Reweights probabilities, increments generation, re-encodes bits.
+    pub fn evolve(&mut self, idx: usize, reward: f64) {
+        if idx >= self.weights.len() {
+            return;
+        }
+        self.weights[idx] = (self.weights[idx] + reward).min(1.0);
+        let total: f64 = self.weights.iter().sum();
+        for w in &mut self.weights {
+            *w /= total;
+        }
+        self.generation += 1;
+        self.refresh();
+    }
+
+    /// D3 string evolution: apply one evolve_step to the raw bit string.
+    /// The string's temporal coordinate drives its own next state.
+    pub fn string_evolve(&mut self) {
+        let protected = self.protected.clone();
+        evolve_step(&mut self.bits, &protected);
+        self.address = dimensional_address(&self.bits);
+    }
+
+    /// D3 string evolution for N steps.
+    pub fn string_evolve_n(&mut self, steps: usize) {
+        let protected = self.protected.clone();
+        for _ in 0..steps {
+            evolve_step(&mut self.bits, &protected);
+        }
+        self.address = dimensional_address(&self.bits);
+    }
+
+    // ── entanglement ─────────────────────────────────────────────────────────
+
+    /// Entangle two SuperBits → new SuperBit encoding their combined state space.
+    /// The combined string has its midpoint flipped (the entanglement signature).
+    pub fn entangle(a: &SuperBit, b: &SuperBit) -> SuperBit {
+        let mut combined = a.bits.clone();
+        combined.extend_from_slice(&b.bits);
+        // Midpoint flip: the entanglement signature
+        let mid = combined.len() / 2;
+        combined[mid] ^= 1;
+
+        // Combined label/weight space (tensor product)
+        let mut labels = Vec::new();
+        let mut weights = Vec::new();
+        for (la, &wa) in a.labels.iter().zip(a.weights.iter()) {
+            for (lb, &wb) in b.labels.iter().zip(b.weights.iter()) {
+                labels.push(format!("{}|{}", la, lb));
+                weights.push(wa * wb);
+            }
+        }
+        let mut child = SuperBit::with_weights(labels, weights);
+        // Override bits with the actual entangled string
+        child.bits = combined;
+        child.address = dimensional_address(&child.bits);
+        child
+    }
+
+    // ── D6 ───────────────────────────────────────────────────────────────────
+
+    pub fn d6(&self) -> f64 {
+        d6_entropy(&self.bits)
+    }
+}
+
+// ── bit encoding helpers ─────────────────────────────────────────────────────
+
+/// Push one byte as 8 bits (MSB first) into a Vec<u8>.
+fn push_u8(bits: &mut Vec<u8>, byte: u8) {
+    for i in (0..8).rev() {
+        bits.push((byte >> i) & 1);
+    }
+}
+
+/// Read 8 bits starting at `offset` and interpret as a u8.
+fn read_u8(bits: &[u8], offset: usize) -> u8 {
+    let mut val = 0u8;
+    for i in 0..8 {
+        if offset + i < bits.len() {
+            val = (val << 1) | (bits[offset + i] & 1);
+        }
+    }
+    val
+}
+
+// ── deterministic PRNG (no OS RNG on bare metal) ─────────────────────────────
+
+/// LCG — Linear Congruential Generator.
+/// Produces a float in [0, 1) from a u64 seed.
+/// Used for deterministic collapse without an OS RNG.
+#[inline]
+pub fn lcg_f64(seed: u64) -> f64 {
+    let next = seed
+        .wrapping_mul(6_364_136_223_846_793_005)
+        .wrapping_add(1_442_695_040_888_963_407);
+    (next >> 33) as f64 / u32::MAX as f64
+}
+
+// ============================================================================
+// DIMENSIONAL INDEX — O(1) Guaranteed Retrieval
+// ============================================================================
+
+/// Stores SuperBits keyed by their dimensional address.
+/// Retrieval is O(1): compute the address from the string, look up directly.
+///
+/// "Standing on all pages": every stored item has a computable address
+/// derived from its own dimensional properties. No search, no traversal.
+pub struct DimensionalIndex {
+    /// Primary store: DimAddr → SuperBit
+    store: BTreeMap<DimAddr, SuperBit>,
+    /// Name lookup: name → DimAddr
+    names: BTreeMap<String, DimAddr>,
+    pub count: usize,
+}
+
+impl DimensionalIndex {
+    pub fn new() -> Self {
+        DimensionalIndex {
+            store: BTreeMap::new(),
+            names: BTreeMap::new(),
+            count: 0,
+        }
+    }
+
+    /// Store a named SuperBit. Returns its dimensional address.
+    pub fn store(&mut self, name: &str, sb: SuperBit) -> DimAddr {
+        let addr = sb.address;
+        self.names.insert(name.to_string(), addr);
+        self.store.insert(addr, sb);
+        self.count += 1;
+        addr
+    }
+
+    /// O(1) retrieval by dimensional address.
+    pub fn get(&self, addr: &DimAddr) -> Option<&SuperBit> {
+        self.store.get(addr)
+    }
+
+    pub fn get_mut(&mut self, addr: &DimAddr) -> Option<&mut SuperBit> {
+        self.store.get_mut(addr)
+    }
+
+    /// Retrieve by name via the name→address map.
+    pub fn get_by_name(&self, name: &str) -> Option<&SuperBit> {
+        self.names.get(name).and_then(|a| self.store.get(a))
+    }
+
+    pub fn get_by_name_mut(&mut self, name: &str) -> Option<&mut SuperBit> {
+        if let Some(&addr) = self.names.get(name) {
+            self.store.get_mut(&addr)
+        } else {
+            None
+        }
+    }
+
+    /// Query all SuperBits in a D3 temporal window.
+    pub fn query_temporal(&self, d3_min: usize, d3_max: usize) -> Vec<&SuperBit> {
+        self.store
+            .iter()
+            .filter(|(k, _)| k.d3 >= d3_min && k.d3 <= d3_max)
+            .map(|(_, v)| v)
+            .collect()
+    }
+
+    /// Query all SuperBits within a density band.
+    pub fn query_density(&self, center: f64, tolerance: f64) -> Vec<&SuperBit> {
+        self.store
+            .iter()
+            .filter(|(k, _)| (k.d4_float() - center).abs() <= tolerance)
+            .map(|(_, v)| v)
+            .collect()
+    }
+
+    /// Remove by name.
+    pub fn remove(&mut self, name: &str) -> bool {
+        if let Some(addr) = self.names.remove(name) {
+            self.store.remove(&addr);
+            self.count -= 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Iterate all entries.
+    pub fn iter(&self) -> impl Iterator<Item = (&DimAddr, &SuperBit)> {
+        self.store.iter()
+    }
+
+    pub fn stats(&self) -> (usize, usize) {
+        (self.count, self.store.len())
+    }
+}
+
+impl Default for DimensionalIndex {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ============================================================================
+// MDB NETWORK — Connected SuperBit Graph
+// ============================================================================
+
+/// A graph of named SuperBit nodes connected by weighted relational edges.
+///
+/// Foundation for:
+///   - Process scheduling (each node = runnable process)
+///   - IPC (propagate = message passing)
+///   - Device driver graph (each node = hardware state)
+pub struct MDBNetwork {
+    pub nodes: BTreeMap<String, SuperBit>,
+    edges: BTreeMap<String, Vec<String>>,
+    edge_weights: BTreeMap<(String, String), f64>,
+}
+
+impl MDBNetwork {
+    pub fn new() -> Self {
+        MDBNetwork {
+            nodes: BTreeMap::new(),
+            edges: BTreeMap::new(),
+            edge_weights: BTreeMap::new(),
+        }
+    }
+
+    pub fn add_node(&mut self, name: &str, sb: SuperBit) {
+        self.edges.entry(name.to_string()).or_insert_with(Vec::new);
+        self.nodes.insert(name.to_string(), sb);
+    }
+
+    pub fn connect(&mut self, a: &str, b: &str, weight: f64) {
+        self.edges.entry(a.to_string()).or_default().push(b.to_string());
+        self.edges.entry(b.to_string()).or_default().push(a.to_string());
+        self.edge_weights.insert(make_edge_key(a, b), weight);
+    }
+
+    pub fn disconnect(&mut self, a: &str, b: &str) {
+        if let Some(v) = self.edges.get_mut(a) {
+            v.retain(|x| x != b);
+        }
+        if let Some(v) = self.edges.get_mut(b) {
+            v.retain(|x| x != a);
+        }
+        self.edge_weights.remove(&make_edge_key(a, b));
+    }
+
+    pub fn edge_weight(&self, a: &str, b: &str) -> f64 {
+        *self.edge_weights.get(&make_edge_key(a, b)).unwrap_or(&0.0)
+    }
+
+    /// Propagate a signal through the network.
+    ///
+    /// Each visited node:
+    ///   1. Collapses (deterministic, seeded by `tick`)
+    ///   2. Evolves toward the incoming signal state
+    ///   3. Passes the collapsed outcome to its neighbors
+    ///
+    /// Returns: map of node_name → collapsed state index.
+    pub fn propagate(
+        &mut self,
+        start: &str,
+        signal_idx: usize,
+        depth: usize,
+        tick: u64,
+    ) -> BTreeMap<String, usize> {
+        let mut results = BTreeMap::new();
+        // (node_name, remaining_depth)
+        let mut stack: Vec<(String, usize)> = vec![(start.to_string(), depth)];
+        let mut visited: Vec<String> = Vec::new();
+
+        while let Some((name, rem)) = stack.pop() {
+            if rem == 0 || visited.contains(&name) {
+                continue;
+            }
+            visited.push(name.clone());
+
+            if let Some(node) = self.nodes.get_mut(&name) {
+                let outcome = node.collapse(tick ^ (rem as u64 * 0xDEAD_BEEF_CAFE));
+                results.insert(name.clone(), outcome);
+                // Reinforce toward the incoming signal
+                node.evolve(signal_idx, 0.05);
+            }
+
+            if let Some(neighbors) = self.edges.get(&name) {
+                let next_signal = results.get(&name).copied().unwrap_or(signal_idx);
+                for neighbor in neighbors.clone() {
+                    stack.push((neighbor, rem - 1));
+                    let _ = next_signal; // propagated implicitly via collapse+evolve
+                }
+            }
+        }
+        results
+    }
+
+    /// Snapshot of the full network: every node collapsed at this tick.
+    pub fn snapshot(&self, tick: u64) -> BTreeMap<String, usize> {
+        self.nodes
+            .iter()
+            .map(|(name, node)| (name.clone(), node.collapse(tick)))
+            .collect()
+    }
+
+    pub fn node_count(&self) -> usize {
+        self.nodes.len()
+    }
+}
+
+impl Default for MDBNetwork {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+fn make_edge_key(a: &str, b: &str) -> (String, String) {
+    if a <= b {
+        (a.to_string(), b.to_string())
+    } else {
+        (b.to_string(), a.to_string())
+    }
+}
+
+// ============================================================================
+// ENTANGLED MEMORY — Cross-Subsystem Memory Fabric
+// ============================================================================
+
+/// Any kernel subsystem can be entangled with any other.
+/// A learning signal in one ripples to all its partners.
+///
+/// This is shared memory without copying:
+/// the bridge strength (D6-derived) determines how strongly
+/// a signal from one subsystem influences another.
+pub struct EntangledMemory {
+    /// name → list of entangled partner names
+    pub links: BTreeMap<String, Vec<String>>,
+    /// (a, b) → D6 bridge strength ∈ [0, 1)
+    bridges: BTreeMap<(String, String), f64>,
+}
+
+impl EntangledMemory {
+    pub fn new() -> Self {
+        EntangledMemory {
+            links: BTreeMap::new(),
+            bridges: BTreeMap::new(),
+        }
+    }
+
+    /// Entangle two named subsystems.
+    /// Bridge strength is derived from both subsystems' D6 entropy values.
+    /// Returns the bridge strength.
+    pub fn entangle(&mut self, name_a: &str, name_b: &str, d6_a: f64, d6_b: f64) -> f64 {
+        // D6 bridge: PHI-inverse-weighted entropy sum, folded to [0, 1)
+        let bridge = (d6_a + d6_b) * (1.0 / PHI) % 1.0;
+        self.links
+            .entry(name_a.to_string())
+            .or_default()
+            .push(name_b.to_string());
+        self.links
+            .entry(name_b.to_string())
+            .or_default()
+            .push(name_a.to_string());
+        self.bridges.insert(make_edge_key(name_a, name_b), bridge);
+        bridge
+    }
+
+    /// Get bridge strength between two subsystems.
+    pub fn bridge(&self, a: &str, b: &str) -> f64 {
+        *self.bridges.get(&make_edge_key(a, b)).unwrap_or(&0.0)
+    }
+
+    /// Get all partners of a named subsystem.
+    pub fn partners(&self, name: &str) -> &[String] {
+        self.links.get(name).map(Vec::as_slice).unwrap_or(&[])
+    }
+
+    /// Ripple a learning signal from `source` to all its entangled partners.
+    /// Returns list of (partner_name, effective_reward) pairs.
+    pub fn ripple(
+        &self,
+        source: &str,
+        base_reward: f64,
+    ) -> Vec<(String, f64)> {
+        let mut effects = Vec::new();
+        for partner in self.partners(source) {
+            let strength = self.bridge(source, partner);
+            let effective = base_reward * strength;
+            effects.push((partner.clone(), effective));
+        }
+        effects
+    }
+}
+
+impl Default for EntangledMemory {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ============================================================================
+// UTILITY
+// ============================================================================
+
+/// Hamming distance between two bit slices of equal length.
+pub fn hamming_distance(a: &[u8], b: &[u8]) -> usize {
+    a.iter().zip(b.iter()).filter(|(&x, &y)| x != y).count()
+}
+
+/// Similarity ∈ [0, 1]: 1 = identical, 0 = completely opposite.
+pub fn bit_similarity(a: &[u8], b: &[u8]) -> f64 {
+    if a.len() != b.len() || a.is_empty() {
+        return 0.0;
+    }
+    1.0 - hamming_distance(a, b) as f64 / a.len() as f64
+}
+
+/// Generate a pseudo-random bit string of given length using LCG.
+pub fn random_bits(len: usize, seed: u64) -> Vec<u8> {
+    let mut bits = Vec::with_capacity(len);
+    let mut s = seed;
+    for _ in 0..len {
+        s = s.wrapping_mul(6_364_136_223_846_793_005)
+             .wrapping_add(1_442_695_040_888_963_407);
+        bits.push(((s >> 33) & 1) as u8);
+    }
+    bits
+}

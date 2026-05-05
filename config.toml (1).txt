@@ -1,0 +1,12 @@
+# .cargo/config.toml  — build config for bare-metal x86_64
+
+[unstable]
+# Rebuild core/alloc/compiler_builtins for our target
+build-std = ["core", "compiler_builtins", "alloc"]
+build-std-features = ["compiler-builtins-mem"]
+
+[build]
+target = "x86_64-mdb_os.json"
+
+[target.'cfg(target_os = "none")']
+runner = "bootimage runner"

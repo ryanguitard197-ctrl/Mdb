@@ -1,0 +1,64 @@
+{
+  "test_framework": "Multi Binary Logic Integrity Tester",
+  "timestamp": "2026-02-04 09:12:49",
+  "summary": {
+    "total": 4,
+    "passed": 4,
+    "failed": 0,
+    "errors": 0
+  },
+  "results": [
+    {
+      "filename": "test_text.txt",
+      "file_size": 6900,
+      "fold_time_ms": 0.17906000005041278,
+      "unfold_time_ms": 0.12339899990365666,
+      "original_hash": "3f77f25b4ed4fe890574d276298986de7fce6a59d37bd38151a1e378ded6aded",
+      "final_hash": "3f77f25b4ed4fe890574d276298986de7fce6a59d37bd38151a1e378ded6aded",
+      "multi_binary_match": true,
+      "integrity_result": "TestResult.PASSED",
+      "error_message": null,
+      "fold_size": 141,
+      "compression_ratio": 0.02043478260869565
+    },
+    {
+      "filename": "test_binary.bin",
+      "file_size": 10000,
+      "fold_time_ms": 0.23177399998530746,
+      "unfold_time_ms": 0.16572499998801504,
+      "original_hash": "3421d9aa928a94decb191ab8e8b76c1d8434bf602c5b3ba10ad42f54c8199c34",
+      "final_hash": "3421d9aa928a94decb191ab8e8b76c1d8434bf602c5b3ba10ad42f54c8199c34",
+      "multi_binary_match": true,
+      "integrity_result": "TestResult.PASSED",
+      "error_message": null,
+      "fold_size": 404,
+      "compression_ratio": 0.0404
+    },
+    {
+      "filename": "test_data.json",
+      "file_size": 4914,
+      "fold_time_ms": 0.3625709999823812,
+      "unfold_time_ms": 0.10841799996796908,
+      "original_hash": "248e643ae987280d11f17de1144dfd0662ba3e404289355bce210cb05bb663a0",
+      "final_hash": "248e643ae987280d11f17de1144dfd0662ba3e404289355bce210cb05bb663a0",
+      "multi_binary_match": true,
+      "integrity_result": "TestResult.PASSED",
+      "error_message": null,
+      "fold_size": 1954,
+      "compression_ratio": 0.39763939763939765
+    },
+    {
+      "filename": "test_empty.txt",
+      "file_size": 0,
+      "fold_time_ms": 0.015007000001787674,
+      "unfold_time_ms": 0.005578000013883866,
+      "original_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "final_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "multi_binary_match": true,
+      "integrity_result": "TestResult.PASSED",
+      "error_message": null,
+      "fold_size": 42,
+      "compression_ratio": 0
+    }
+  ]
+}

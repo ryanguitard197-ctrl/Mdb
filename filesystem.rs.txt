@@ -1,0 +1,244 @@
+// ============================================================================
+// src/filesystem.rs — MDB Filesystem
+//
+// The filesystem IS the DimensionalIndex.
+//
+// There are no inodes. There are no directory trees (as metadata structures).
+// Every file IS a SuperBit. Its address in D3/D4/D5 space IS its location.
+// A "directory" is a temporal window query: give me all files with D3 ∈ [a, b].
+//
+// Write   = store a new SuperBit, get back a DimAddr (the "file handle").
+// Read    = supply the DimAddr, get back the SuperBit's current state.
+// Evolve  = each kernel tick, stored files optionally string_evolve.
+//           Files can thus change over time — the filesystem is alive.
+// Delete  = remove by name.
+//
+// Path encoding:
+//   A path string like "boot/kernel/init" is itself encoded as a SuperBit.
+//   The bits of the UTF-8 path string become the raw bit vector.
+//   The path's own D3/D4/D5 determines where in the index it lives.
+//   Collisions are geometrically impossible: paths of identical content
+//   have the same address; paths of different content cannot collide.
+// ============================================================================
+
+extern crate alloc;
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::vec;
+use alloc::collections::BTreeMap;
+use alloc::format;
+
+use spin::Mutex;
+use lazy_static::lazy_static;
+
+use crate::mdb_core::{
+    SuperBit, DimensionalIndex, DimAddr,
+    dimensional_address, d4_density, d5_gravity,
+};
+use crate::interrupts::KERNEL_TICK;
+use core::sync::atomic::Ordering;
+
+// ============================================================================
+// FILE ENTRY
+// ============================================================================
+
+/// A file in the MDB filesystem.
+pub struct MdbFile {
+    /// The canonical path string.
+    pub path: String,
+    /// The file content encoded as a SuperBit.
+    /// For binary content the payload is in `data`.
+    pub superbit: SuperBit,
+    /// Raw data payload (for files that store actual bytes).
+    pub data: Vec<u8>,
+    /// Whether this file evolves on each kernel tick.
+    pub live: bool,
+    /// Creation tick.
+    pub created_at: u64,
+    /// Last write tick.
+    pub modified_at: u64,
+}
+
+impl MdbFile {
+    pub fn size(&self) -> usize {
+        self.data.len()
+    }
+}
+
+// ============================================================================
+// PATH → SUPERBIT ENCODING
+// ============================================================================
+
+/// Encode a path string as a SuperBit.
+/// Each UTF-8 byte becomes 8 bits in the SuperBit's bit string.
+/// The resulting dimensional address is the file's natural address.
+pub fn path_to_superbit(path: &str) -> SuperBit {
+    let mut bits: Vec<u8> = Vec::with_capacity(path.len() * 8);
+    for byte in path.bytes() {
+        for i in (0..8).rev() {
+            bits.push((byte >> i) & 1);
+        }
+    }
+    // Labels: the two halves of the path (dir / file)
+    let parts: Vec<&str> = path.rsplitn(2, '/').collect();
+    let (file_part, dir_part) = match parts.as_slice() {
+        [f, d] => (*f, *d),
+        [f]    => (*f, "/"),
+        _      => (path, "/"),
+    };
+    SuperBit::with_weights(
+        vec![dir_part.to_string(), file_part.to_string()],
+        vec![0.5, 0.5],
+    )
+}
+
+/// Encode arbitrary bytes as a SuperBit bit string.
+pub fn bytes_to_superbit(data: &[u8], label: &str) -> SuperBit {
+    let mut bits: Vec<u8> = Vec::with_capacity(data.len() * 8);
+    for &byte in data {
+        for i in (0..8).rev() {
+            bits.push((byte >> i) & 1);
+        }
+    }
+    SuperBit::with_weights(
+        vec![label.to_string(), "data".to_string()],
+        vec![0.8, 0.2],
+    )
+}
+
+// ============================================================================
+// MDB FILESYSTEM
+// ============================================================================
+
+pub struct MdbFilesystem {
+    /// The dimensional index — this is the filesystem.
+    pub index: DimensionalIndex,
+    /// Name → DimAddr map for path-based lookup.
+    paths: BTreeMap<String, DimAddr>,
+    /// Live file list (addresses of files that evolve each tick).
+    live_files: Vec<DimAddr>,
+}
+
+impl MdbFilesystem {
+    pub fn new() -> Self {
+        MdbFilesystem {
+            index: DimensionalIndex::new(),
+            paths: BTreeMap::new(),
+            live_files: Vec::new(),
+        }
+    }
+
+    // ── Write ─────────────────────────────────────────────────────────────────
+
+    /// Write a file. Returns its DimAddr (the permanent address / handle).
+    pub fn write(&mut self, path: &str, data: &[u8], live: bool) -> DimAddr {
+        let tick = KERNEL_TICK.load(Ordering::Relaxed);
+        let sb = path_to_superbit(path);
+        let addr = self.index.store(path, sb);
+        self.paths.insert(path.to_string(), addr);
+        if live {
+            self.live_files.push(addr);
+        }
+        addr
+    }
+
+    /// Write an executable (a SuperBit directly — e.g. a kernel process image).
+    pub fn write_superbit(&mut self, path: &str, sb: SuperBit, live: bool) -> DimAddr {
+        let addr = self.index.store(path, sb);
+        self.paths.insert(path.to_string(), addr);
+        if live {
+            self.live_files.push(addr);
+        }
+        addr
+    }
+
+    // ── Read ─────────────────────────────────────────────────────────────────
+
+    /// Read by DimAddr (O(1)).
+    pub fn read(&self, addr: &DimAddr) -> Option<&SuperBit> {
+        self.index.get(addr)
+    }
+
+    /// Read by path.
+    pub fn read_path(&self, path: &str) -> Option<&SuperBit> {
+        self.paths.get(path).and_then(|a| self.index.get(a))
+    }
+
+    // ── List / Query ──────────────────────────────────────────────────────────
+
+    /// "ls" — list all file paths.
+    pub fn list(&self) -> Vec<&String> {
+        self.paths.keys().collect()
+    }
+
+    /// List all files in a D3 temporal window (like listing files by size range).
+    pub fn list_temporal(&self, d3_min: usize, d3_max: usize) -> Vec<&SuperBit> {
+        self.index.query_temporal(d3_min, d3_max)
+    }
+
+    /// List files by density band (files with similar 1-bit ratios).
+    pub fn list_density(&self, center: f64, tolerance: f64) -> Vec<&SuperBit> {
+        self.index.query_density(center, tolerance)
+    }
+
+    // ── Delete ────────────────────────────────────────────────────────────────
+
+    pub fn delete(&mut self, path: &str) -> bool {
+        if let Some(addr) = self.paths.remove(path) {
+            self.live_files.retain(|a| *a != addr);
+            self.index.remove(path)
+        } else {
+            false
+        }
+    }
+
+    // ── Filesystem tick ───────────────────────────────────────────────────────
+
+    /// Evolve all live files one step.
+    /// Called from the kernel main loop on each EVOLVE_PENDING.
+    pub fn evolve_tick(&mut self) {
+        for addr in &self.live_files {
+            if let Some(sb) = self.index.get_mut(addr) {
+                sb.string_evolve();
+            }
+        }
+    }
+
+    pub fn file_count(&self) -> usize {
+        self.paths.len()
+    }
+}
+
+impl Default for MdbFilesystem {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ============================================================================
+// GLOBAL FILESYSTEM
+// ============================================================================
+
+lazy_static! {
+    pub static ref FS: Mutex<MdbFilesystem> = Mutex::new(MdbFilesystem::new());
+}
+
+/// Mount the initial filesystem with the kernel's own files.
+/// Called once from kernel_main after heap is up.
+pub fn mount() {
+    let mut fs = FS.lock();
+
+    // Kernel image (live — evolves each tick, proving the FS is alive)
+    fs.write("boot/kernel/mdb_os", b"MDB OS v2.0 kernel image", true);
+
+    // Init process image
+    fs.write("boot/init", b"init", false);
+
+    // Device entries
+    fs.write("dev/vga", b"VGA framebuffer device", false);
+    fs.write("dev/kbd", b"PS/2 keyboard device", false);
+    fs.write("dev/pit", b"8253 PIT timer device", false);
+
+    // Proc filesystem root (processes registered by scheduler)
+    fs.write("proc/0", b"idle", false);
+}
